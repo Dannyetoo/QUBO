@@ -1,0 +1,106 @@
+QUBO
+Registra ingresos y decide qué pagar, qué reservar y qué conservar.
+
+
+INSTALACIÓN EN HOSTINGER
+
+1. Entra a hPanel y abre el Administrador de archivos del sitio.
+2. Crea una carpeta dentro de public_html (por ejemplo public_html/qubo) o usa un
+   subdominio (por ejemplo qubo.tudominio.com). No lo subas encima de un sitio
+   que ya tenga su propio index.html.
+3. Sube a esa carpeta los archivos de este paquete:
+      index.html             la aplicación completa (interfaz, motor y guardado)
+      sw.js                  modo sin conexión
+      manifest.webmanifest   instalación en la pantalla de inicio
+      icon-180.png, icon-192.png, icon-512.png
+   Solo index.html es indispensable. Los demás son opcionales.
+4. Verifica que el dominio tenga SSL activo (https). Sin https la app funciona,
+   pero no se instala ni trabaja sin conexión.
+5. Abre la dirección en el teléfono y elige "Agregar a pantalla de inicio".
+
+No necesita base de datos, PHP ni ninguna configuración del servidor.
+Para actualizar, reemplaza index.html. Tus datos no se tocan.
+
+
+DÓNDE VIVEN TUS DATOS
+
+Todo se guarda en el navegador del dispositivo (localStorage), ligado a la
+dirección exacta donde abres la app. Nada viaja al servidor.
+- Otro teléfono, otro navegador u otro dominio empiezan vacíos.
+- Borrar los datos de navegación del sitio borra la información.
+- Usa Configuración > Ajustes > Respaldo y restauración para copiar o descargar
+  tus datos y llevarlos a otro dispositivo. Haz un respaldo de vez en cuando.
+- La app no pide contraseña: quien use tu teléfono desbloqueado puede verla.
+
+
+USO
+
+Primera vez
+  Toca "Borrar y usar los míos" para quitar los datos de ejemplo.
+  Configuración (engranaje):
+  - Ingresos: saldo inicial (el dinero real que tienes hoy), reserva mínima de
+    seguridad, ingreso diario estimado e ingresos futuros confirmados.
+  - Obligaciones: monto, pendiente, vencimiento, consecuencia del impago,
+    prioridad manual, pagos parciales y mínimo, destino y estado.
+  - Ajustes: con cuántos días de anticipación pagar y apartar, y zona horaria.
+
+Cada vez que recibes dinero
+  "Registrar ingreso" > cantidad > Guardar. La fecha y la hora se ponen solas.
+  La pantalla muestra de inmediato el reparto actualizado.
+
+Estado
+  - Disponible: dinero real libre (total en mano menos lo reservado).
+  - Reservado: dinero que sigue en tu mano, pero ya tiene destino.
+  - Próximo vencimiento: cuánto está apartado, cuánto cubre el dinero de hoy,
+    cuánto depende de ingresos proyectados y cuánto falta.
+  - Reparte ahora: PAGAR, RESERVAR y CONSERVAR.
+
+Confirmar
+  Una recomendación no mueve dinero hasta que la confirmas.
+  - "Confirmar pago" resta del total en mano y de lo pendiente. Usa primero lo
+    que ya habías apartado para esa obligación.
+  - "Confirmar apartado" pasa dinero de Disponible a Reservado.
+  Cada confirmación se registra una sola vez y se puede deshacer.
+
+Movimientos (icono de lista)
+  Historial completo. Nada se borra: "Anular" agrega un movimiento que cancela
+  al original. Si tu dinero real no coincide con el de la app (gastos que no
+  son obligaciones), usa "Mi dinero real no coincide" y se registra la
+  diferencia como corrección.
+
+
+CÓMO DECIDE
+
+1. Solo reparte dinero real: total en mano, menos lo reservado, menos tu
+   reserva de seguridad. El ingreso diario estimado nunca cuenta como saldo.
+2. Ordena por la consecuencia del impago, luego por tu prioridad manual y
+   luego por fecha.
+3. Proyecta día por día el ingreso diario y los ingresos confirmados hasta
+   cada vencimiento. Lo que ese futuro no alcanza a cubrir se aparta desde hoy.
+   Lo que ya registraste hoy se descuenta de la proyección de hoy.
+4. Si algo no se puede cubrir a tiempo de ninguna forma, primero salva lo que
+   vence antes y sí alcanza; el resto lo aparta para eso y te avisa cuánto
+   falta y hacia qué fecha se completaría.
+5. Lo que sobra se adelanta a los vencimientos cercanos y después a los saldos
+   por encima del mínimo (por ejemplo, el resto de una tarjeta).
+6. Marca PAGAR cuando falta poco para vencer y alcanza el mínimo exigido; si
+   no alcanza, RESERVAR. Una obligación sin pagos parciales nunca se recomienda
+   pagar incompleta.
+
+Criterios de fecha: un ingreso confirmado cuenta para lo que vence ese mismo
+día o después; el ingreso diario estimado solo cuenta para los días anteriores
+al vencimiento.
+
+En obligaciones con mínimo (tarjetas), al cambiar de periodo actualiza la
+fecha de vencimiento: el mínimo vuelve a exigirse para la nueva fecha.
+
+
+ESTRUCTURA DEL CÓDIGO (paquete de código fuente)
+
+  src/core.js     Núcleo sin interfaz: dinero en centavos enteros, fechas por
+                  zona horaria, contabilidad y motor de priorización.
+  src/ui.js       Guardado (un adaptador sobre localStorage) e interfaz.
+  src/style.css   Estilos. src/body.html: estructura de la página.
+  build.py        Une todo en dist/hostinger/index.html.
+  test/           node test/core.test.js   (25 pruebas del núcleo)
+                  node test/ui.smoke.js    (recorrido de la interfaz, Playwright)

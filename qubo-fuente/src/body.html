@@ -1,0 +1,28 @@
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="cubes" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="word">QUBO</span>
+    </div>
+    <div class="top-r">
+      <span class="today" id="today"></span>
+      <button class="icon" type="button" data-act="open-history" aria-label="Movimientos">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+      </button>
+      <button class="icon" type="button" data-act="open-config" aria-label="Configuración">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.4-2.3 1a7.6 7.6 0 0 0-2.6-1.5L14.2 2.6h-4l-.3 2.5A7.6 7.6 0 0 0 7.3 6.6l-2.3-1-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.4 2.3-1a7.6 7.6 0 0 0 2.6 1.5l.3 2.5h4l.3-2.5a7.6 7.6 0 0 0 2.6-1.5l2.3 1 2-3.4z"/></svg>
+      </button>
+    </div>
+  </header>
+  <main id="view"></main>
+</div>
+
+<nav class="dock" aria-label="Acciones">
+  <div class="dock-in">
+    <button class="btn" type="button" data-act="refresh">Estado</button>
+    <button class="btn primary" type="button" data-act="open-income">Registrar ingreso</button>
+  </div>
+</nav>
+
+<dialog class="sheet" id="sheet" aria-label="Panel"></dialog>
+<div class="toast" id="toast" role="status" hidden></div>

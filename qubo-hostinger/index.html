@@ -1,0 +1,1468 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QUBO</title>
+<meta name="description" content="Registra ingresos y decide qué pagar, qué reservar y qué conservar.">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#EDF0EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1513" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="QUBO">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..700&family=Figtree:wght@400..700&display=swap">
+<style>
+/* Una sola columna pensada para el pulgar: saldo arriba, tres cubos (pagar, reservar, conservar) apilados y la acción principal fija abajo. */
+:root {
+  --bg: #EDF0EE;
+  --surface: #FAFBFA;
+  --ink: #121B18;
+  --muted: #5B6863;
+  --line: #D2D9D5;
+  --fill: #DFE5E2;
+  --pay: #AE3349;
+  --reserve: #8A6100;
+  --keep: #1B7350;
+  --scrim: rgba(12, 20, 17, .48);
+  --f-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  --f-body: 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1513; --surface: #171E1B; --ink: #E7ECE9; --muted: #92A09A; --line: #29322F; --fill: #222B28;
+    --pay: #F08C9A; --reserve: #E2B24A; --keep: #63CC98; --scrim: rgba(0, 0, 0, .62);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1513; --surface: #171E1B; --ink: #E7ECE9; --muted: #92A09A; --line: #29322F; --fill: #222B28;
+  --pay: #F08C9A; --reserve: #E2B24A; --keep: #63CC98; --scrim: rgba(0, 0, 0, .62);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 400 1rem/1.45 var(--f-body); font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+}
+[hidden] { display: none !important; }
+h1, h2, h3, p, ul, dl, dd { margin: 0; }
+ul { padding: 0; list-style: none; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* ---------- Estructura ---------- */
+.app { max-width: 30rem; margin: 0 auto; padding-inline: 20px; padding-block: 0 7.5rem; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 14px 6px; }
+.brand { display: flex; align-items: center; gap: 9px; }
+.cubes { display: grid; grid-template-columns: repeat(2, 7px); gap: 2px; }
+.cubes i { width: 7px; height: 7px; border-radius: 1.5px; background: var(--pay); }
+.cubes i:nth-child(2) { background: var(--reserve); }
+.cubes i:nth-child(3) { background: var(--keep); grid-column: 2; }
+.word { font: 700 1.0625rem/1 var(--f-display); letter-spacing: .14em; }
+.top-r { display: flex; align-items: center; gap: 2px; }
+.today { color: var(--muted); font-size: .875rem; margin-right: 6px; white-space: nowrap; }
+.icon { width: 2.75rem; height: 2.75rem; display: grid; place-items: center; border: 0; background: none; border-radius: 12px; }
+.icon svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#view { display: flex; flex-direction: column; gap: 2rem; padding-top: 1.25rem; }
+
+.label { font-size: .6875rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.row > * { min-width: 0; }
+.row.wrap { flex-wrap: wrap; gap: 2px 12px; }
+.m i { font-style: normal; font-size: .58em; opacity: .62; letter-spacing: 0; }
+.cap { font-size: .8125rem; color: var(--muted); }
+
+/* ---------- Saldo ---------- */
+.hero { display: flex; flex-direction: column; gap: .35rem; }
+.big { font: 700 clamp(2.9rem, 15vw, 4.1rem)/1 var(--f-display); letter-spacing: -.035em; overflow-wrap: anywhere; }
+.big.neg { color: var(--pay); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; margin-top: .9rem; border-top: 1px solid var(--line); }
+.pair > div { padding-top: .7rem; }
+.pair > div + div { padding-left: 16px; border-left: 1px solid var(--line); }
+.pair dt { font-size: .8125rem; color: var(--muted); }
+.pair dd { font: 600 1.1875rem/1.3 var(--f-display); }
+
+/* ---------- Próximo vencimiento ---------- */
+.next { display: flex; flex-direction: column; gap: .5rem; }
+.next h2 { font: 600 1.1875rem/1.25 var(--f-display); overflow-wrap: anywhere; }
+.next .amt { font: 600 1.1875rem/1.25 var(--f-display); white-space: nowrap; }
+.when { font-size: .875rem; font-weight: 600; white-space: nowrap; }
+.when.hot { color: var(--pay); }
+.bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--fill); }
+.bar span { min-width: 3px; }
+.b-res { background: var(--reserve); }
+.b-now { background: var(--ink); }
+.b-fut { background: repeating-linear-gradient(135deg, var(--muted) 0 3px, transparent 3px 6px); }
+.b-miss { background: var(--pay); }
+.b-pay { background: var(--pay); }
+.b-keep { background: var(--keep); }
+.b-rest { background: transparent; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .8125rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend span::before { content: ''; width: 8px; height: 8px; border-radius: 2px; background: var(--k, var(--muted)); }
+.legend .l-fut::before { background: repeating-linear-gradient(135deg, var(--muted) 0 2px, transparent 2px 4px); }
+
+/* ---------- Reparto ---------- */
+.plan { display: flex; flex-direction: column; gap: .6rem; scroll-margin-top: 12px; }
+.mid { font: 700 2.125rem/1.05 var(--f-display); letter-spacing: -.025em; }
+.note { font-size: .875rem; padding: .55rem .75rem; border-radius: 10px; background: color-mix(in srgb, var(--keep) 13%, transparent); }
+.cube { border-top: 1px solid var(--line); padding-top: .9rem; margin-top: .6rem; }
+.cube > header { display: flex; align-items: center; gap: 10px; }
+.sq { width: 11px; height: 11px; border-radius: 2.5px; background: var(--k); flex: none; }
+.cube h3 { font-size: .8125rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; flex: 1; }
+.tot { font: 700 1.3125rem/1 var(--f-display); color: var(--k); }
+.cube.pay, .k-pay { --k: var(--pay); }
+.cube.reserve, .k-res { --k: var(--reserve); }
+.cube.keep, .k-keep { --k: var(--keep); }
+.k-now { --k: var(--ink); }
+.items { display: flex; flex-direction: column; }
+.items li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding-block: .8rem; }
+.items li + li { border-top: 1px dashed var(--line); }
+.items strong { font-weight: 600; overflow-wrap: anywhere; }
+.it-amt { font: 600 1.0625rem/1.45 var(--f-display); white-space: nowrap; text-align: right; }
+.why { grid-column: 1 / -1; font-size: .875rem; color: var(--muted); }
+.items .btn { grid-column: 1 / -1; margin-top: .5rem; }
+.none { padding-block: .7rem .1rem; font-size: .9375rem; color: var(--muted); }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding-top: .7rem; font-size: .9375rem; }
+.kv span:first-child { color: var(--muted); }
+
+/* ---------- Avisos ---------- */
+.alerts { display: flex; flex-direction: column; gap: .6rem; }
+.alert { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; font-size: .9375rem; padding: .75rem .85rem; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.alert::before { content: '!'; width: 1.25rem; height: 1.25rem; border-radius: 50%; display: grid; place-items: center; font: 700 .75rem/1 var(--f-body); background: var(--k, var(--muted)); color: var(--bg); margin-top: 1px; }
+.alert.info::before { content: 'i'; }
+.alert .btn { grid-column: 2; justify-self: start; margin-top: .35rem; }
+.banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: .875rem; padding: .6rem .85rem; border: 1px dashed var(--muted); border-radius: 12px; }
+
+/* ---------- Controles ---------- */
+.btn { min-height: 3rem; padding: 0 1.1rem; border-radius: 12px; border: 1px solid var(--line); background: transparent; color: var(--ink); font-weight: 600; text-align: center; }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.sm { min-height: 2.5rem; padding: 0 .9rem; font-size: .9375rem; }
+.btn.danger { color: var(--pay); }
+.btn[data-armed] { background: var(--pay); border-color: var(--pay); color: var(--bg); }
+.link { border: 0; background: none; padding: .35rem 0; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px)); background: color-mix(in srgb, var(--bg) 90%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-top: 1px solid var(--line); }
+.dock-in { max-width: 27.5rem; margin: 0 auto; display: flex; gap: 10px; }
+.dock .primary { flex: 1; min-height: 3.375rem; font-size: 1.0625rem; }
+.dock .btn:not(.primary) { min-height: 3.375rem; }
+
+/* ---------- Paneles ---------- */
+.sheet { border: 0; padding: 0; margin: auto auto 0; width: 100%; max-width: 30rem; max-height: 92dvh; background: var(--surface); color: var(--ink); border-radius: 20px 20px 0 0; overflow: auto; overscroll-behavior: contain; }
+.sheet::backdrop { background: var(--scrim); }
+.sheet[open] { animation: up .2s ease-out; }
+@keyframes up { from { transform: translateY(24px); opacity: 0; } }
+.sh { display: flex; flex-direction: column; gap: 1.1rem; padding: 8px 20px calc(24px + env(safe-area-inset-bottom, 0px)); }
+.sh-top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 4px; margin-inline: -8px; padding-block: 8px 4px; background: var(--surface); }
+.sh-top h2 { flex: 1; font: 600 1.1875rem/1.2 var(--f-display); padding-left: 8px; }
+.sh-top .icon + h2 { padding-left: 0; }
+form, .stack { display: flex; flex-direction: column; gap: 1rem; }
+.field { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.field > span { font-size: .875rem; font-weight: 600; }
+.field small { font-size: .8125rem; color: var(--muted); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+input[type="text"], input[type="date"], input[type="number"], select, textarea {
+  width: 100%; min-height: 3rem; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 1rem;
+}
+textarea { min-height: 7rem; font: .75rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+input[readonly] { color: var(--muted); }
+.money { position: relative; }
+.money::before { content: '$'; position: absolute; left: .8rem; top: 50%; transform: translateY(-50%); color: var(--muted); }
+.money input { padding-left: 1.7rem; }
+.money.xl::before { left: 0; font: 700 2rem/1 var(--f-display); }
+.money.xl input { border: 0; border-bottom: 2px solid var(--ink); border-radius: 0; background: none; padding: .2rem 0 .3rem 1.6rem; font: 700 2.75rem/1.1 var(--f-display); letter-spacing: -.02em; }
+.money.xl input:focus { outline: none; }
+.check { display: flex; align-items: center; gap: 10px; min-height: 2.75rem; font-weight: 600; font-size: .9375rem; }
+.check input { width: 1.375rem; height: 1.375rem; accent-color: var(--ink); }
+.err { color: var(--pay); font-size: .9375rem; font-weight: 600; }
+.err:empty { display: none; }
+.tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 12px; background: var(--fill); }
+.tabs button { min-height: 2.5rem; border: 0; border-radius: 9px; background: none; font-size: .9375rem; font-weight: 600; color: var(--muted); }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); }
+.list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; align-items: center; padding-block: .75rem; border-top: 1px solid var(--line); }
+.list li:first-child { border-top: 0; }
+.list .t { font-weight: 600; overflow-wrap: anywhere; }
+.list .s { grid-column: 1; font-size: .8125rem; color: var(--muted); }
+.list .a { grid-row: 1 / span 2; grid-column: 2; text-align: right; font: 600 1rem/1.3 var(--f-display); white-space: nowrap; }
+.list .a small { display: block; font: 400 .8125rem/1.3 var(--f-body); color: var(--muted); }
+.list .acts { grid-column: 1 / -1; display: flex; gap: 14px; flex-wrap: wrap; }
+.list li > .rowb { all: unset; box-sizing: border-box; grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; align-items: center; cursor: pointer; border-radius: 8px; }
+.list li > .rowb:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+.list li.off .t, .list li.off .a { text-decoration: line-through; color: var(--muted); }
+.plus { color: var(--keep); }
+.minus { color: var(--pay); }
+.chip { display: inline-block; padding: 1px 8px; border: 1px solid currentColor; border-radius: 99px; font: 600 .6875rem/1.5 var(--f-body); letter-spacing: .04em; text-transform: uppercase; vertical-align: 2px; margin-left: 6px; color: var(--muted); }
+.chip.hot { color: var(--pay); }
+.chip.ok { color: var(--keep); }
+.sub { font: 600 .9375rem/1.3 var(--f-display); border-top: 1px solid var(--line); margin-top: .4rem; padding-top: 1rem; }
+.rules { padding-left: 1.1rem; list-style: decimal; display: flex; flex-direction: column; gap: .4rem; font-size: .875rem; color: var(--muted); }
+details summary { font-weight: 600; min-height: 2.75rem; display: flex; align-items: center; cursor: pointer; }
+.headline { font: 700 1.5rem/1.15 var(--f-display); overflow-wrap: anywhere; }
+.toast { position: fixed; left: 50%; bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 20; width: max-content; max-width: calc(100% - 32px); display: flex; align-items: center; gap: 14px; padding: .7rem 1rem; border-radius: 12px; background: var(--ink); color: var(--bg); font-size: .9375rem; box-shadow: 0 6px 24px var(--scrim); }
+.toast button { border: 0; background: none; color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; padding: .2rem 0; }
+
+@media (prefers-reduced-motion: reduce) { .sheet[open] { animation: none; } html { scroll-behavior: auto; } }
+@media (min-width: 40rem) { .sheet { margin: auto; border-radius: 20px; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="cubes" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="word">QUBO</span>
+    </div>
+    <div class="top-r">
+      <span class="today" id="today"></span>
+      <button class="icon" type="button" data-act="open-history" aria-label="Movimientos">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+      </button>
+      <button class="icon" type="button" data-act="open-config" aria-label="Configuración">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.4-2.3 1a7.6 7.6 0 0 0-2.6-1.5L14.2 2.6h-4l-.3 2.5A7.6 7.6 0 0 0 7.3 6.6l-2.3-1-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.4 2.3-1a7.6 7.6 0 0 0 2.6 1.5l.3 2.5h4l.3-2.5a7.6 7.6 0 0 0 2.6-1.5l2.3 1 2-3.4z"/></svg>
+      </button>
+    </div>
+  </header>
+  <main id="view"></main>
+</div>
+
+<nav class="dock" aria-label="Acciones">
+  <div class="dock-in">
+    <button class="btn" type="button" data-act="refresh">Estado</button>
+    <button class="btn primary" type="button" data-act="open-income">Registrar ingreso</button>
+  </div>
+</nav>
+
+<dialog class="sheet" id="sheet" aria-label="Panel"></dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+/* ==========================================================================
+   QUBO · NÚCLEO (sin DOM, sin almacenamiento)
+   Dinero en centavos enteros · fechas civiles por zona horaria ·
+   contabilidad por libro de movimientos · motor determinista de priorización.
+   Todo aquí es puro: mismo estado + misma fecha = misma respuesta.
+   ========================================================================== */
+const Core = (() => {
+  'use strict';
+
+  const DAY = 86400000;
+  const SEV = { critica: 4, alta: 3, media: 2, baja: 1 };
+  const SEV_LABEL = { critica: 'Crítica', alta: 'Alta', media: 'Media', baja: 'Baja' };
+  const isInt = Number.isSafeInteger;
+
+  /* ---------- Dinero: siempre enteros en centavos ---------- */
+
+  // Convierte texto a centavos sin pasar por punto flotante. Devuelve null si no es válido.
+  function parseMoney(input) {
+    if (typeof input !== 'string') return null;
+    let s = input.trim().replace(/[$\s]/g, '');
+    if (!s) return null;
+    if (s.includes(',')) {
+      if (s.includes('.') || /^\d{1,3}(,\d{3})+$/.test(s)) s = s.replace(/,/g, '');   // 1,250.50 · 1,250
+      else if (/^\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.');                       // 12,5
+      else return null;
+    }
+    const m = /^(\d{0,11})(?:\.(\d{0,2}))?$/.exec(s);
+    if (!m || (m[1] === '' && !m[2])) return null;
+    return Number(m[1] || '0') * 100 + Number((m[2] || '').padEnd(2, '0'));
+  }
+
+  function moneyParts(cents) {
+    const a = Math.abs(cents);
+    return {
+      sign: cents < 0 ? '−' : '',
+      whole: String(Math.trunc(a / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ','),
+      frac: String(a % 100).padStart(2, '0'),
+    };
+  }
+  function money(cents) { const p = moneyParts(cents); return `${p.sign}$${p.whole}.${p.frac}`; }
+  // Texto para precargar un campo de monto.
+  function moneyInput(cents) { const p = moneyParts(Math.abs(cents)); return `${p.whole.replace(/,/g, '')}.${p.frac}`; }
+
+  /* ---------- Fechas civiles (AAAA-MM-DD) y zona horaria ---------- */
+
+  const fmtCache = new Map();
+  // Día civil en el que cae un instante, visto desde la zona horaria dada.
+  function dayIn(tz, date) {
+    let f = fmtCache.get(tz);
+    if (!f) {
+      f = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+      fmtCache.set(tz, f);
+    }
+    const p = {};
+    for (const x of f.formatToParts(date)) p[x.type] = x.value;
+    return `${p.year}-${p.month}-${p.day}`;
+  }
+  function validTz(tz) {
+    if (typeof tz !== 'string' || !tz) return false;
+    try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch (e) { return false; }
+  }
+  function localTz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { return 'UTC'; }
+  }
+  // Los días se cuentan como enteros desde 1970 en UTC: restar fechas nunca depende del horario de verano.
+  function dayNum(iso) { const [y, m, d] = iso.split('-').map(Number); return Math.round(Date.UTC(y, m - 1, d) / DAY); }
+  function isDay(iso) {
+    if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+    const y = Number(iso.slice(0, 4));
+    return y >= 2000 && y <= 2100 && new Date(dayNum(iso) * DAY).toISOString().slice(0, 10) === iso;
+  }
+  function addDays(iso, n) { return new Date((dayNum(iso) + n) * DAY).toISOString().slice(0, 10); }
+  function diffDays(a, b) { return dayNum(a) - dayNum(b); }
+
+  function uid() {
+    try { if (globalThis.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) { /* sigue */ }
+    return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  /* ---------- Estado ---------- */
+
+  function blank(tz) {
+    return {
+      app: 'qubo', v: 1, rev: 0, demo: false,
+      settings: { tz: validTz(tz) ? tz : localTz(), daily: 0, safety: 0, payDays: 3, horizon: 15 },
+      obligations: [], future: [], ledger: [],
+    };
+  }
+
+  const LEDGER_TYPES = ['opening', 'adjust', 'income', 'payment', 'reserve', 'release', 'void'];
+
+  // Valida y copia un estado leído del almacenamiento o de un respaldo. Estricto: ante cualquier dato raro devuelve null.
+  function normalize(raw) {
+    if (!raw || typeof raw !== 'object' || raw.app !== 'qubo') return null;
+    const st = raw.settings || {};
+    const out = blank(st.tz);
+    out.rev = isInt(raw.rev) && raw.rev >= 0 ? raw.rev : 0;
+    out.demo = raw.demo === true;
+    const nn = v => isInt(v) && v >= 0;
+    if (nn(st.daily)) out.settings.daily = st.daily;
+    if (nn(st.safety)) out.settings.safety = st.safety;
+    if (nn(st.payDays) && st.payDays <= 30) out.settings.payDays = st.payDays;
+    if (nn(st.horizon) && st.horizon <= 365) out.settings.horizon = st.horizon;
+    const str = (v, max) => typeof v === 'string' && v.length <= max;
+    const ids = new Set();
+
+    for (const o of Array.isArray(raw.obligations) ? raw.obligations : []) {
+      if (!o || !str(o.id, 80) || !o.id || ids.has(o.id) || !str(o.name, 80) || !o.name) return null;
+      if (!(isInt(o.amount) && o.amount > 0) || !isDay(o.due) || !(o.sev in SEV)) return null;
+      const paidBefore = nn(o.paidBefore) ? o.paidBefore : 0;
+      if (paidBefore > o.amount) return null;
+      ids.add(o.id);
+      out.obligations.push({
+        id: o.id, name: o.name, amount: o.amount, paidBefore, due: o.due, sev: o.sev,
+        prio: isInt(o.prio) && o.prio >= 1 && o.prio <= 5 ? o.prio : 3,
+        partial: o.partial === true, min: nn(o.min) ? Math.min(o.min, o.amount) : 0,
+        dest: str(o.dest, 120) ? o.dest : '', status: o.status === 'pausa' ? 'pausa' : 'activa',
+        created: str(o.created, 40) ? o.created : '',
+      });
+    }
+    const fids = new Set();
+    for (const f of Array.isArray(raw.future) ? raw.future : []) {
+      if (!f || !str(f.id, 80) || !f.id || fids.has(f.id) || !(isInt(f.amount) && f.amount > 0) || !isDay(f.date)) return null;
+      fids.add(f.id);
+      out.future.push({ id: f.id, amount: f.amount, date: f.date, concept: str(f.concept, 80) ? f.concept : '', received: f.received === true });
+    }
+    const lids = new Set();
+    for (const e of Array.isArray(raw.ledger) ? raw.ledger : []) {
+      if (!e || !str(e.id, 120) || !e.id || lids.has(e.id) || !LEDGER_TYPES.includes(e.type)) return null;
+      if (!str(e.ts, 40) || Number.isNaN(Date.parse(e.ts))) return null;
+      const x = { id: e.id, ts: e.ts, type: e.type };
+      if (e.type === 'void') { if (!str(e.ref, 120)) return null; x.ref = e.ref; }
+      else {
+        if (!isInt(e.amount)) return null;
+        if (e.type !== 'opening' && e.type !== 'adjust' && e.amount <= 0) return null;
+        x.amount = e.amount;
+      }
+      if (str(e.ob, 80) && e.ob) x.ob = e.ob;
+      if (str(e.label, 80) && e.label) x.label = e.label;
+      if (str(e.concept, 120) && e.concept) x.concept = e.concept;
+      if (str(e.fi, 80) && e.fi) x.fi = e.fi;
+      if (e.type === 'payment') { x.fromReserve = nn(e.fromReserve) ? Math.min(e.fromReserve, e.amount) : 0; if (isDay(e.due)) x.due = e.due; }
+      if (e.auto === true) x.auto = true;
+      lids.add(e.id);
+      out.ledger.push(x);
+    }
+    return out;
+  }
+
+  /* ---------- Contabilidad: el libro de movimientos es la única fuente de verdad ---------- */
+
+  // Recorre el libro y deriva saldos. Nada se guarda como total: no hay forma de que un total se desfase.
+  function account(state, today) {
+    const tz = state.settings.tz;
+    const voided = new Set();
+    for (const e of state.ledger) if (e.type === 'void') voided.add(e.ref);
+    const by = new Map();
+    for (const o of state.obligations) by.set(o.id, { paid: 0, paidDue: 0, reserved: 0, pending: 0, due: o.due });
+    const lo = (dayNum(today) - 2) * DAY;   // solo los movimientos recientes pueden ser "de hoy"
+    let cash = 0, opening = 0, incomeToday = 0;
+    for (const e of state.ledger) {
+      if (e.type === 'void' || voided.has(e.id)) continue;
+      const b = e.ob ? by.get(e.ob) : null;
+      switch (e.type) {
+        case 'opening': cash += e.amount; opening += e.amount; break;
+        case 'adjust': cash += e.amount; break;
+        case 'income':
+          cash += e.amount;
+          // Lo ya registrado hoy descuenta la proyección de hoy (no se cuenta dos veces).
+          if (!e.fi) { const t = Date.parse(e.ts); if (t >= lo && dayIn(tz, new Date(t)) === today) incomeToday += e.amount; }
+          break;
+        case 'payment':
+          cash -= e.amount;
+          if (b) { b.paid += e.amount; b.reserved -= e.fromReserve || 0; if (e.due === b.due) b.paidDue += e.amount; }
+          break;
+        case 'reserve': if (b) b.reserved += e.amount; break;
+        case 'release': if (b) b.reserved -= e.amount; break;
+      }
+    }
+    let reservedTotal = 0;
+    for (const o of state.obligations) {
+      const b = by.get(o.id);
+      b.reserved = Math.max(0, b.reserved);
+      b.pending = Math.max(0, o.amount - o.paidBefore - b.paid);
+      reservedTotal += b.reserved;
+    }
+    return { cash, opening, reservedTotal, free: cash - reservedTotal, by, voided, incomeToday };
+  }
+
+  // Mínimo que falta para el vencimiento vigente. Lo ya pagado contra esa fecha cuenta: el mínimo no se pide dos veces.
+  function minRemaining(o, b) {
+    if (!o.partial) return b.pending;
+    return o.min > 0 ? Math.min(Math.max(0, o.min - b.paidDue), b.pending) : 0;
+  }
+
+  /* ---------- Motor de priorización ---------- */
+
+  /*
+    Reglas, en orden:
+    1. Solo se reparte dinero disponible real (en mano − reservado) por encima de la reserva de seguridad.
+    2. Importancia = consecuencia del impago → prioridad manual → fecha. La consecuencia manda sobre el orden manual.
+    3. Cada obligación se intenta cubrir con el ingreso proyectado MÁS TARDÍO que llegue antes de su vencimiento;
+       solo lo que el futuro no cubre reclama dinero de hoy ("protegido").
+    4. Si una obligación no se puede cubrir a tiempo ni con lo proyectado, primero se salvan las que vencen
+       antes y sí se pueden cubrir completas; lo demás se aparta para ella.
+    5. Lo que sobra se adelanta a los vencimientos cercanos (dentro del horizonte), del más próximo al más lejano.
+    6. Lo que queda después va a los saldos por encima del mínimo (p. ej. el resto de una tarjeta).
+    7. PAGAR si vence dentro de la ventana de pago y alcanza el mínimo exigido; si no, RESERVAR.
+  */
+  function plan(state, now) {
+    const S = state.settings;
+    const today = dayIn(S.tz, now || new Date());
+    const acc = account(state, today);
+    const free = acc.free;
+    const cushion = Math.max(0, Math.min(free, S.safety));
+    let pool = Math.max(0, free - S.safety);
+    const distributable = pool;
+
+    const items = [];
+    for (const o of state.obligations) {
+      const b = acc.by.get(o.id);
+      if (o.status !== 'activa' || b.pending <= 0) continue;
+      const reserved = Math.min(b.reserved, b.pending);
+      // Tramo A = lo que evita el impago: todo (sin parciales), el mínimo que falta (parciales con mínimo)
+      // o todo pero divisible (parcial sin mínimo). Tramo B = el saldo por encima del mínimo.
+      const minEff = minRemaining(o, b);
+      const base = o.partial && o.min > 0 ? minEff : b.pending;
+      items.push({
+        o, pending: b.pending, reserved, days: diffDays(o.due, today), minEff, threshold: minEff > 0,
+        needA: Math.max(0, base - reserved),
+        needB: Math.max(0, (b.pending - base) - Math.max(0, reserved - base)),
+        protectedNow: 0, accel: 0, extra: 0, future: 0, short: 0, lateDate: null, now: 0, done: false,
+      });
+    }
+    items.sort((x, y) =>
+      SEV[y.o.sev] - SEV[x.o.sev] || x.o.prio - y.o.prio || x.days - y.days ||
+      (x.o.created < y.o.created ? -1 : x.o.created > y.o.created ? 1 : 0) || (x.o.id < y.o.id ? -1 : 1));
+    items.forEach((it, i) => { it.rank = i; });
+
+    // Proyección día por día. Índice = días desde hoy. El ingreso diario es una estimación, nunca saldo.
+    const maxDays = items.reduce((m, it) => Math.max(m, it.days), 0);
+    const T = Math.min(366, maxDays) + 60;
+    const daily = new Array(T + 1).fill(S.daily);
+    daily[0] = Math.max(0, S.daily - acc.incomeToday);
+    const conf = new Array(T + 1).fill(0);
+    const overdueFuture = [];
+    for (const f of state.future) {
+      if (f.received) continue;
+      const t = diffDays(f.date, today);
+      if (t < 0) overdueFuture.push(f); else if (t <= T) conf[t] += f.amount;
+    }
+    const daily0 = daily.slice(), conf0 = conf.slice();
+
+    // Antes del vencimiento D cuentan: confirmados hasta el día D y el ingreso diario de los días anteriores a D.
+    const cut = it => Math.min(it.days, T);
+    function futureAvail(it) {
+      let s = 0;
+      for (let t = cut(it); t >= 0; t--) { s += conf[t]; if (t < it.days) s += daily[t]; }
+      return s;
+    }
+    function takeFuture(it, need) {
+      let got = 0;
+      for (let t = cut(it); t >= 0 && need > 0; t--) {
+        let k = Math.min(conf[t], need); conf[t] -= k; need -= k; got += k;
+        if (t < it.days) { k = Math.min(daily[t], need); daily[t] -= k; need -= k; got += k; }
+      }
+      return got;
+    }
+    // Una obligación que no llega a tiempo absorbe los ingresos siguientes; estima cuándo se completaría.
+    function takeLate(it, need) {
+      for (let t = Math.max(0, it.days); t <= T; t++) {
+        let k = Math.min(conf[t], need); conf[t] -= k; need -= k;
+        k = Math.min(daily[t], need); daily[t] -= k; need -= k;
+        if (need <= 0) return addDays(today, t);
+      }
+      return null;
+    }
+    function serve(it) {
+      it.done = true;
+      let need = it.needA;
+      if (need <= 0) return;
+      const f = takeFuture(it, need); need -= f; it.future += f;
+      const c = Math.min(pool, need); pool -= c; need -= c; it.protectedNow += c;
+      it.short = need;
+      if (need > 0) it.lateDate = takeLate(it, need);
+    }
+    const feasible = it => futureAvail(it) + pool >= it.needA;
+
+    // Paso A · proteger: reclamar de hoy solo lo que el futuro no alcanza a cubrir.
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.done) continue;
+      if (it.threshold && it.needA > 0 && !feasible(it)) {
+        for (let j = i + 1; j < items.length; j++) {
+          const e = items[j];
+          if (!e.done && e.needA > 0 && e.days <= it.days && feasible(e)) { serve(e); e.jumped = true; }
+        }
+      }
+      serve(it);
+    }
+    // Paso B · adelantar a vencimientos cercanos lo que hoy dependía de ingresos futuros.
+    const near = items.filter(it => it.days <= S.horizon).sort((x, y) => x.days - y.days || x.rank - y.rank);
+    for (const it of near) {
+      if (pool <= 0) break;
+      const k = Math.min(pool, it.future); pool -= k; it.accel += k; it.future -= k;
+    }
+    // Paso C · saldos por encima del mínimo.
+    for (const it of near) {
+      if (pool <= 0) break;
+      const k = Math.min(pool, it.needB); pool -= k; it.extra += k;
+    }
+
+    // Convertir asignaciones en acciones.
+    const pay = [], reserve = [];
+    const byDue = items.slice().sort((x, y) => x.days - y.days || x.rank - y.rank);
+    for (const it of byDue) {
+      it.now = it.protectedNow + it.accel + it.extra;
+      const total = it.reserved + it.now;
+      const dueSoon = it.days <= S.payDays;
+      const minPay = it.o.partial ? (it.minEff > 0 ? it.minEff : 1) : it.pending;
+      if (dueSoon && total >= minPay) {
+        const amount = Math.min(total, it.pending);
+        const fromReserve = Math.min(it.reserved, amount);
+        pay.push({ it, amount, fromReserve, fromFree: amount - fromReserve, full: amount === it.pending });
+      } else if (it.now > 0) {
+        reserve.push({ it, amount: it.now, incomplete: dueSoon, protectedPart: it.protectedNow });
+      }
+    }
+    const payFree = pay.reduce((s, a) => s + a.fromFree, 0);
+    const payTotal = pay.reduce((s, a) => s + a.amount, 0);
+    const reserveTotal = reserve.reduce((s, a) => s + a.amount, 0);
+    const distribute = payFree + reserveTotal;
+    const keep = Math.max(0, free - distribute);
+
+    // Sugerencia: liberar apartados de obligaciones menos importantes para cubrir un faltante más grave.
+    const releases = [];
+    const holders = items.filter(it => it.reserved > 0).map(it => ({ it, left: it.reserved })).sort((x, y) => y.it.rank - x.it.rank);
+    for (const s of items) {
+      if (s.short <= 0) continue;
+      let need = s.short;
+      for (const h of holders) {
+        if (need <= 0 || h.it.rank <= s.rank) break;
+        const k = Math.min(h.left, need);
+        if (k > 0) { releases.push({ from: h.it, for: s, amount: k }); h.left -= k; need -= k; }
+      }
+    }
+
+    // Próximo vencimiento y su proyección diaria.
+    let next = null;
+    if (byDue.length) {
+      const it = byDue[0];
+      let projDaily = 0, projConf = 0;
+      for (let t = cut(it); t >= 0; t--) { projConf += conf0[t]; if (t < it.days) projDaily += daily0[t]; }
+      next = { it, projDaily, projConf };
+    }
+
+    return {
+      today, cash: acc.cash, reservedTotal: acc.reservedTotal, free, opening: acc.opening, incomeToday: acc.incomeToday,
+      safety: S.safety, cushion, distributable, distribute, payFree, payTotal, reserveTotal,
+      keep, keepExtra: keep - cushion, pay, reserve, items, next, releases, overdueFuture,
+      shorts: items.filter(it => it.short > 0), acc,
+    };
+  }
+
+  /* ---------- Operaciones: la única forma de cambiar el estado ---------- */
+
+  const fail = msg => ({ ok: false, msg });
+  // Un mismo id nunca entra dos veces al libro: doble toque, doble pestaña o reintento no duplican nada.
+  const DUP = { ok: false, dup: true, msg: 'Ese movimiento ya estaba registrado.' };
+  const seen = (s, id) => s.ledger.some(x => x.id === id);
+  function push(s, e) {
+    if (seen(s, e.id)) return DUP;
+    s.ledger.push(e);
+    return { ok: true, id: e.id };
+  }
+  const okAmount = a => isInt(a) && a > 0;
+  const text = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
+
+  const ops = {
+    income(s, { id, amount, concept, ts }) {
+      if (seen(s, id)) return DUP;
+      if (!okAmount(amount)) return fail('Escribe una cantidad mayor a cero.');
+      const e = { id, ts, type: 'income', amount };
+      if (text(concept, 120)) e.concept = text(concept, 120);
+      return push(s, e);
+    },
+
+    pay(s, { id, ob, amount, ts }, today) {
+      if (seen(s, id)) return DUP;
+      const o = s.obligations.find(x => x.id === ob);
+      if (!o) return fail('Esa obligación ya no existe.');
+      if (!okAmount(amount)) return fail('Escribe una cantidad mayor a cero.');
+      const acc = account(s, today), b = acc.by.get(ob);
+      if (b.pending <= 0) return fail('Esta obligación ya está pagada.');
+      if (amount > b.pending) return fail(`Solo quedan ${money(b.pending)} pendientes.`);
+      if (!o.partial && amount !== b.pending) return fail(`No admite pagos parciales: son ${money(b.pending)} completos.`);
+      const minRem = minRemaining(o, b);
+      if (o.partial && amount < minRem) return fail(`El pago mínimo es ${money(minRem)}.`);
+      const fromReserve = Math.min(b.reserved, amount);
+      if (amount - fromReserve > Math.max(0, acc.free)) {
+        return fail(`No tienes ese dinero. Puedes pagar hasta ${money(Math.max(0, acc.free) + b.reserved)}.`);
+      }
+      const r = push(s, { id, ts, type: 'payment', ob, label: o.name, amount, fromReserve, due: o.due });
+      if (!r.ok) return r;
+      const excess = (b.reserved - fromReserve) - (b.pending - amount);   // apartado que ya no hace falta
+      if (excess > 0) push(s, { id: id + ':lib', ts, type: 'release', ob, label: o.name, amount: excess, auto: true });
+      return r;
+    },
+
+    reserve(s, { id, ob, amount, ts }, today) {
+      if (seen(s, id)) return DUP;
+      const o = s.obligations.find(x => x.id === ob);
+      if (!o) return fail('Esa obligación ya no existe.');
+      if (!okAmount(amount)) return fail('Escribe una cantidad mayor a cero.');
+      const acc = account(s, today), b = acc.by.get(ob);
+      if (amount > b.pending - b.reserved) return fail(`Solo faltan ${money(Math.max(0, b.pending - b.reserved))} por apartar.`);
+      if (amount > acc.free) return fail(`Solo tienes ${money(Math.max(0, acc.free))} disponibles.`);
+      return push(s, { id, ts, type: 'reserve', ob, label: o.name, amount });
+    },
+
+    release(s, { id, ob, amount, ts }, today) {
+      if (seen(s, id)) return DUP;
+      const o = s.obligations.find(x => x.id === ob);
+      if (!o) return fail('Esa obligación ya no existe.');
+      if (!okAmount(amount)) return fail('Escribe una cantidad mayor a cero.');
+      const b = account(s, today).by.get(ob);
+      if (amount > b.reserved) return fail(`Solo hay ${money(b.reserved)} apartados.`);
+      return push(s, { id, ts, type: 'release', ob, label: o.name, amount });
+    },
+
+    // Nada se borra: anular agrega un movimiento que cancela al original.
+    void(s, { id, ref, ts }, today) {
+      if (seen(s, id)) return DUP;
+      const e = s.ledger.find(x => x.id === ref);
+      if (!e || e.type === 'void') return fail('Ese movimiento no existe.');
+      if (e.type === 'release') return fail('Una liberación no se anula: vuelve a apartar el dinero.');
+      const acc = account(s, today);
+      if (acc.voided.has(ref)) return fail('Ese movimiento ya estaba anulado.');
+      if (e.type === 'reserve') {
+        const b = acc.by.get(e.ob);
+        if (b && b.reserved < e.amount) return fail('Parte de ese apartado ya se usó en un pago. Anula primero el pago.');
+      }
+      const r = push(s, { id, ts, type: 'void', ref, label: e.label || e.concept || '' });
+      if (!r.ok) return r;
+      if (e.fi) { const f = s.future.find(x => x.id === e.fi); if (f) f.received = false; }
+      return r;
+    },
+
+    saveSettings(s, d, today) {
+      const { id, ts } = d;
+      for (const k of ['opening', 'safety', 'daily']) if (!(isInt(d[k]) && d[k] >= 0)) return fail('Revisa los montos: deben ser cero o más.');
+      if (!(isInt(d.payDays) && d.payDays >= 0 && d.payDays <= 30)) return fail('Días para pagar: entre 0 y 30.');
+      if (!(isInt(d.horizon) && d.horizon >= 0 && d.horizon <= 365)) return fail('Días para reservar: entre 0 y 365.');
+      if (!validTz(d.tz)) return fail('Zona horaria no válida.');
+      const delta = d.opening - account(s, today).opening;
+      if (delta !== 0) { const r = push(s, { id, ts, type: 'opening', amount: delta, concept: 'Saldo inicial' }); if (!r.ok) return r; }
+      Object.assign(s.settings, { safety: d.safety, daily: d.daily, payDays: d.payDays, horizon: d.horizon, tz: d.tz });
+      return { ok: true };
+    },
+
+    // Corrige el dinero en mano cuando la realidad no coincide (gastos fuera de la app, efectivo contado).
+    adjustCash(s, { id, target, ts }, today) {
+      if (!(isInt(target) && target >= 0)) return fail('Escribe cuánto dinero tienes en realidad.');
+      const delta = target - account(s, today).cash;
+      if (delta === 0) return fail('El saldo ya coincide.');
+      return push(s, { id, ts, type: 'adjust', amount: delta, concept: 'Corrección de saldo' });
+    },
+
+    saveObligation(s, d, today) {
+      const name = text(d.name, 80);
+      if (!name) return fail('Ponle un nombre.');
+      if (!okAmount(d.amount)) return fail('El monto debe ser mayor a cero.');
+      if (!isDay(d.due)) return fail('Elige la fecha de vencimiento.');
+      if (!(d.sev in SEV)) return fail('Elige la consecuencia del impago.');
+      if (!(isInt(d.prio) && d.prio >= 1 && d.prio <= 5)) return fail('Prioridad: del 1 al 5.');
+      const min = d.partial ? d.min : 0;
+      if (!(isInt(min) && min >= 0 && min <= d.amount)) return fail('El mínimo no puede superar el monto.');
+      let o = d.id ? s.obligations.find(x => x.id === d.id) : null;
+      if (d.id && !o) return fail('Esa obligación ya no existe.');
+      const paid = o ? account(s, today).by.get(o.id).paid : 0;
+      const pending = d.pending == null ? Math.max(0, d.amount - (o ? o.paidBefore : 0) - paid) : d.pending;
+      if (!(isInt(pending) && pending >= 0)) return fail('Revisa lo pendiente.');
+      if (pending + paid > d.amount) {
+        return fail(paid ? `Ya registraste ${money(paid)} en pagos: lo pendiente no puede pasar de ${money(d.amount - paid)}.` : 'Lo pendiente no puede superar el monto total.');
+      }
+      if (!o) {
+        if (s.obligations.some(x => x.id === d.newId)) return { ok: false, dup: true, msg: 'Esa obligación ya estaba guardada.' };
+        o = { id: d.newId, created: d.ts }; s.obligations.push(o);
+      }
+      Object.assign(o, {
+        name, amount: d.amount, paidBefore: d.amount - paid - pending, due: d.due, sev: d.sev, prio: d.prio,
+        partial: d.partial === true, min, dest: text(d.dest, 120), status: d.status === 'pausa' ? 'pausa' : 'activa',
+      });
+      const b = account(s, today).by.get(o.id);
+      const excess = o.status === 'pausa' ? b.reserved : b.reserved - b.pending;
+      if (excess > 0) push(s, { id: d.entry + ':lib', ts: d.ts, type: 'release', ob: o.id, label: o.name, amount: excess, auto: true });
+      return { ok: true, id: o.id };
+    },
+
+    deleteObligation(s, { id, ob, ts }, today) {
+      const o = s.obligations.find(x => x.id === ob);
+      if (!o) return fail('Esa obligación ya no existe.');
+      const b = account(s, today).by.get(ob);
+      if (b.reserved > 0) push(s, { id: id + ':lib', ts, type: 'release', ob, label: o.name, amount: b.reserved, auto: true });
+      s.obligations = s.obligations.filter(x => x.id !== ob);
+      return { ok: true };
+    },
+
+    addFuture(s, { id, amount, date, concept }, today) {
+      if (!okAmount(amount)) return fail('Escribe una cantidad mayor a cero.');
+      if (!isDay(date)) return fail('Elige la fecha en que llegará.');
+      if (s.future.some(f => f.id === id)) return { ok: false, dup: true, msg: 'Ese ingreso ya estaba guardado.' };
+      s.future.push({ id, amount, date, concept: text(concept, 80), received: false });
+      return { ok: true };
+    },
+    deleteFuture(s, { fid }) {
+      const f = s.future.find(x => x.id === fid);
+      if (!f) return fail('Ese ingreso ya no existe.');
+      if (f.received) return fail('Ya está recibido: anúlalo desde Movimientos.');
+      s.future = s.future.filter(x => x.id !== fid);
+      return { ok: true };
+    },
+    // Al llegar, el ingreso confirmado pasa al saldo real una sola vez y deja de proyectarse.
+    receiveFuture(s, { fid, ts }) {
+      const f = s.future.find(x => x.id === fid);
+      if (!f) return fail('Ese ingreso ya no existe.');
+      if (f.received) return { ok: false, dup: true, msg: 'Ese ingreso ya estaba recibido.' };
+      const n = s.ledger.filter(e => e.fi === fid).length;
+      const r = push(s, { id: `fi:${fid}:${n}`, ts, type: 'income', amount: f.amount, concept: f.concept || 'Ingreso confirmado', fi: fid });
+      if (r.ok) f.received = true;
+      return r;
+    },
+  };
+
+  /* ---------- Datos de ejemplo (fechas relativas a hoy) ---------- */
+
+  function demo(now, tz) {
+    const s = blank(tz);
+    const today = dayIn(s.settings.tz, now), ts = now.toISOString();
+    s.demo = true;
+    Object.assign(s.settings, { daily: 90000, safety: 50000 });
+    const ob = (id, name, amount, days, sev, prio, extra) => s.obligations.push(Object.assign(
+      { id, name, amount, paidBefore: 0, due: addDays(today, days), sev, prio, partial: false, min: 0, dest: '', status: 'activa', created: ts + id }, extra));
+    ob('ej-luz', 'Luz', 78000, 2, 'alta', 2, { dest: 'Recibo en línea o tienda' });
+    ob('ej-renta', 'Renta', 650000, 6, 'critica', 1, { dest: 'Transferencia al arrendador' });
+    ob('ej-tarjeta', 'Tarjeta de crédito', 1240000, 9, 'alta', 2, { partial: true, min: 124000, dest: 'App del banco' });
+    ob('ej-internet', 'Internet', 38900, 12, 'media', 3, { dest: 'Cargo en línea' });
+    ob('ej-prestamo', 'Préstamo de un familiar', 200000, 20, 'baja', 4, { partial: true, dest: 'En efectivo' });
+    s.future.push({ id: 'ej-cobro', amount: 400000, date: addDays(today, 4), concept: 'Cobro pendiente', received: false });
+    s.ledger.push({ id: 'ej-inicial', ts, type: 'opening', amount: 320000, concept: 'Saldo inicial' });
+    return s;
+  }
+
+  return {
+    SEV, SEV_LABEL, parseMoney, money, moneyParts, moneyInput, dayIn, validTz, localTz, isDay, addDays, diffDays,
+    uid, blank, normalize, account, minRemaining, plan, ops, demo,
+  };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = Core;
+</script>
+<script>
+/* ==========================================================================
+   QUBO · PERSISTENCIA
+   Un solo adaptador. Hoy guarda en localStorage; para sincronizar con un
+   servidor basta con sustituir read() y write() por llamadas a tu API.
+   ========================================================================== */
+const Store = (() => {
+  const KEY = 'qubo.v1';
+  let mem = null, ok = true;
+  const fromMem = () => (mem ? JSON.parse(mem) : null);
+  return {
+    get ok() { return ok; },
+    read() {
+      if (!ok && mem) return fromMem();
+      try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : fromMem(); }
+      catch (e) { ok = false; return fromMem(); }
+    },
+    write(state) {
+      mem = JSON.stringify(state);
+      try { localStorage.setItem(KEY, mem); ok = true; } catch (e) { ok = false; }
+    },
+    // Si lo guardado no se puede leer, se aparta una copia antes de seguir: nunca se pisa a ciegas.
+    quarantine() {
+      try { const raw = localStorage.getItem(KEY); if (raw) localStorage.setItem(KEY + '.copia-' + Date.now(), raw); } catch (e) { /* sin almacenamiento */ }
+    },
+    onExternalChange(fn) { window.addEventListener('storage', e => { if (e.key === KEY) fn(); }); },
+  };
+})();
+
+/* ==========================================================================
+   QUBO · INTERFAZ
+   Solo dibuja lo que calcula el núcleo y traduce toques en operaciones.
+   ========================================================================== */
+(() => {
+  'use strict';
+  const HOSTED = true;    // el empaquetado para Hostinger lo cambia a true (descarga de respaldo y modo sin conexión)
+
+  const $ = (sel, root) => (root || document).querySelector(sel);
+  const view = $('#view'), sheet = $('#sheet'), toastEl = $('#toast');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const M = c => { const p = Core.moneyParts(c); return `<span class="m">${p.sign}$${p.whole}<i>.${p.frac}</i></span>`; };
+  const T = Core.money;
+
+  const dfDay = new Intl.DateTimeFormat('es-MX', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const dayLabel = iso => dfDay.format(new Date(iso + 'T12:00:00Z')).replace(/[.,]/g, '');
+  const stamp = ts => new Intl.DateTimeFormat('es-MX', { timeZone: state.settings.tz, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ts)).replace(/\./g, '');
+  const clock = () => new Intl.DateTimeFormat('es-MX', { timeZone: state.settings.tz, hour: '2-digit', minute: '2-digit' }).format(new Date());
+  function whenText(days) {
+    if (days < -1) return `Venció hace ${-days} días`;
+    if (days === -1) return 'Venció ayer';
+    if (days === 0) return 'Vence hoy';
+    if (days === 1) return 'Vence mañana';
+    return `Vence en ${days} días`;
+  }
+
+  /* ---------- Estado y guardado ---------- */
+
+  let state = boot(), lastPlan = null, cur = null, flash = null, undoFn = null, toastTimer = 0;
+
+  function boot() {
+    const raw = Store.read(), s = Core.normalize(raw);
+    if (s) return s;
+    if (raw) Store.quarantine();
+    return Core.demo(new Date());
+  }
+  const today = () => Core.dayIn(state.settings.tz, new Date());
+
+  // Cada cambio parte de lo último guardado (otra pestaña pudo escribir) y sube la revisión.
+  function commit(fn) {
+    const fresh = Core.normalize(Store.read()) || JSON.parse(JSON.stringify(state));
+    const res = fn(fresh, Core.dayIn(fresh.settings.tz, new Date()), new Date().toISOString()) || { ok: true };
+    if (res.ok) { fresh.rev += 1; Store.write(fresh); state = fresh; }
+    else state = Core.normalize(Store.read()) || state;
+    render();
+    return res;
+  }
+  const undoEntry = id => commit((s, day, ts) => Core.ops.void(s, { id: 'anula:' + id, ref: id, ts }, day));
+
+  /* ---------- Pantalla principal ---------- */
+
+  function render() {
+    const p = lastPlan = Core.plan(state, new Date());
+    $('#today').textContent = dayLabel(p.today);
+    const note = flash; flash = null;
+    view.innerHTML = banner() + hero(p) + nextDue(p) + planBlock(p, note) + alerts(p);
+  }
+
+  function banner() {
+    if (!state.demo) return '';
+    return `<div class="banner"><span>Datos de ejemplo</span>
+      <button class="link" type="button" data-act="demo-clear">Borrar y usar los míos</button></div>`;
+  }
+
+  function hero(p) {
+    return `<section class="hero">
+      <p class="label">Disponible</p>
+      <p class="big${p.free < 0 ? ' neg' : ''}">${M(p.free)}</p>
+      <dl class="pair">
+        <div><dt>Reservado</dt><dd>${M(p.reservedTotal)}</dd></div>
+        <div><dt>Total en mano</dt><dd>${M(p.cash)}</dd></div>
+      </dl>
+    </section>`;
+  }
+
+  function coverage(it) {
+    const rest = Math.max(0, it.pending - it.reserved - it.now - it.future - it.short);
+    const seg = [['b-res', 'k-res', 'Apartado', it.reserved], ['b-now', 'k-now', 'Con lo de hoy', it.now],
+      ['b-fut', 'l-fut', 'Proyectado', it.future], ['b-miss', 'k-pay', 'Falta', it.short], ['b-rest', '', '', rest]];
+    const bar = seg.filter(s => s[3] > 0).map(s => `<span class="${s[0]}" style="flex:${s[3]}"></span>`).join('');
+    const legend = seg.filter(s => s[3] > 0 && s[2]).map(s => `<span class="${s[1]}">${s[2]} ${T(s[3])}</span>`).join('');
+    return `<div class="bar" role="img" aria-label="Cobertura del pago">${bar}</div><p class="legend">${legend}</p>`;
+  }
+
+  function nextDue(p) {
+    if (!p.next) return '';
+    const { it, projDaily, projConf } = p.next;
+    let proj = '';
+    if (it.days > 0) {
+      proj = projDaily + projConf > 0
+        ? `Antes de esa fecha proyectas ${T(projDaily)} de ingreso diario${projConf ? ` y ${T(projConf)} confirmados` : ''}. Es una estimación, no saldo.`
+        : 'Sin ingresos proyectados antes de esa fecha.';
+    }
+    return `<section class="next">
+      <div class="row wrap"><p class="label">Próximo vencimiento</p>
+        <p class="when${it.days <= 1 ? ' hot' : ''}">${whenText(it.days)} · ${dayLabel(it.o.due)}</p></div>
+      <div class="row"><h2>${esc(it.o.name)}</h2><p class="amt">${M(it.pending)}</p></div>
+      ${coverage(it)}
+      ${proj ? `<p class="cap">${proj}</p>` : ''}
+    </section>`;
+  }
+
+  function payItem(a) {
+    const it = a.it, bits = [`${whenText(it.days)} (${dayLabel(it.o.due)})`];
+    if (it.o.sev === 'critica' || it.o.sev === 'alta') bits.push(`consecuencia ${Core.SEV_LABEL[it.o.sev].toLowerCase()}`);
+    let why = bits.join(' · ') + '.';
+    if (!a.full) why += ` Pago parcial${it.minEff && a.amount >= it.minEff ? ' que cubre el mínimo' : ''}; quedarán ${T(it.pending - a.amount)}.`;
+    if (a.fromReserve > 0) why += ` ${T(a.fromReserve)} salen de lo que ya apartaste.`;
+    if (it.o.dest) why += ` Destino: ${esc(it.o.dest)}.`;
+    return `<li><strong>${esc(it.o.name)}</strong><span class="it-amt">${M(a.amount)}</span>
+      <p class="why">${why}</p>
+      <button class="btn sm" type="button" data-act="move" data-kind="pay" data-ob="${esc(it.o.id)}" data-amount="${a.amount}" data-key="r:pay:${esc(it.o.id)}:${state.rev}">Confirmar pago</button></li>`;
+  }
+
+  function reserveItem(a) {
+    const it = a.it;
+    let why = `${whenText(it.days)} (${dayLabel(it.o.due)}). `;
+    if (a.incomplete) {
+      const target = it.o.partial ? (it.minEff || 1) : it.pending;
+      why += `Todavía no alcanza para pagarlo: faltan ${T(target - it.reserved - it.now)}. Aparta esto mientras tanto.`;
+    } else if (it.short > 0) why += 'No se completa a tiempo: aparta todo lo que puedas.';
+    else if (a.protectedPart > 0) why += 'Tus ingresos proyectados no alcanzan a cubrirlo: aparta desde hoy.';
+    else if (it.extra > 0 && it.extra === a.amount) why += 'Abono por encima del mínimo.';
+    else why += 'Vencimiento cercano: apártalo para no depender de ingresos que aún no llegan.';
+    return `<li><strong>${esc(it.o.name)}</strong><span class="it-amt">${M(a.amount)}</span>
+      <p class="why">${why}</p>
+      <button class="btn sm" type="button" data-act="move" data-kind="reserve" data-ob="${esc(it.o.id)}" data-amount="${a.amount}" data-key="r:reserve:${esc(it.o.id)}:${state.rev}">Confirmar apartado</button></li>`;
+  }
+
+  function planBlock(p, note) {
+    if (!state.obligations.length) {
+      return `<section class="plan" id="plan"><p class="label">Reparto</p>
+        <p class="none">Agrega tus obligaciones y te diré qué pagar, qué apartar y qué conservar.</p>
+        <button class="btn" type="button" data-act="ob-new">Agregar obligación</button></section>`;
+    }
+    const split = p.free > 0 ? `<div class="bar" role="img" aria-label="Reparto del dinero disponible">
+        ${[['b-pay', p.payFree], ['b-res', p.reserveTotal], ['b-keep', p.keep]].filter(s => s[1] > 0).map(s => `<span class="${s[0]}" style="flex:${s[1]}"></span>`).join('')}</div>` : '';
+    const keepRows = [];
+    if (p.safety > 0) keepRows.push(`<p class="kv"><span>Reserva de seguridad${p.cushion < p.safety ? ` (meta ${T(p.safety)})` : ''}</span><span>${M(p.cushion)}</span></p>`);
+    if (p.keepExtra > 0 || !p.safety) keepRows.push(`<p class="kv"><span>Libre, sin compromiso</span><span>${M(p.keepExtra)}</span></p>`);
+    const fromRes = p.payTotal - p.payFree;
+    return `<section class="plan" id="plan">
+      <p class="label">Reparte ahora</p>
+      <p class="mid">${M(p.distribute)}</p>
+      <p class="cap">${p.distribute > 0 ? `de tus ${T(p.free)} disponibles.` : 'Hoy no hay nada que repartir.'}${fromRes > 0 ? ` Además usarás ${T(fromRes)} que ya tenías apartados.` : ''}</p>
+      ${note ? `<p class="note">Ingreso de ${T(note)} registrado. El reparto ya lo incluye.</p>` : ''}
+      ${split}
+      <div class="cube pay"><header><span class="sq"></span><h3>Pagar</h3><span class="tot">${M(p.payTotal)}</span></header>
+        ${p.pay.length ? `<ul class="items">${p.pay.map(payItem).join('')}</ul>` : '<p class="none">Nada por pagar todavía.</p>'}</div>
+      <div class="cube reserve"><header><span class="sq"></span><h3>Reservar</h3><span class="tot">${M(p.reserveTotal)}</span></header>
+        ${p.reserve.length ? `<ul class="items">${p.reserve.map(reserveItem).join('')}</ul>` : '<p class="none">Nada nuevo por apartar.</p>'}</div>
+      <div class="cube keep"><header><span class="sq"></span><h3>Conservar</h3><span class="tot">${M(p.keep)}</span></header>
+        ${keepRows.join('')}</div>
+    </section>`;
+  }
+
+  function alerts(p) {
+    const out = [];
+    if (!Store.ok) out.push('<div class="alert k-pay"><p>Este navegador no está guardando datos. Lo que registres se perderá al cerrar: copia un respaldo desde Configuración.</p></div>');
+    if (p.free < 0) out.push(`<div class="alert k-pay"><p>Tienes ${T(-p.free)} más apartado que dinero real. Libera un apartado o corrige tu saldo en Movimientos.</p></div>`);
+    for (const it of p.shorts) {
+      let t = `<strong>${esc(it.o.name)}</strong>: faltan ${T(it.short)} para el ${dayLabel(it.o.due)}. `;
+      t += it.lateDate ? `Con lo proyectado se completaría hacia el ${dayLabel(it.lateDate)}.` : 'Lo proyectado no alcanza a completarlo.';
+      if (it.days <= state.settings.payDays && p.cushion > 0) t += ` Tu reserva de seguridad tiene ${T(p.cushion)}; usarla es decisión tuya.`;
+      out.push(`<div class="alert k-pay"><p>${t}</p><button class="btn sm" type="button" data-act="ob-edit" data-ob="${esc(it.o.id)}">Ver obligación</button></div>`);
+    }
+    for (const r of p.releases) {
+      out.push(`<div class="alert k-res"><p>Sugerencia: libera ${T(r.amount)} apartados para <strong>${esc(r.from.o.name)}</strong> y úsalos en <strong>${esc(r.for.o.name)}</strong>, que pesa más.</p>
+        <button class="btn sm" type="button" data-act="move" data-kind="release" data-ob="${esc(r.from.o.id)}" data-amount="${r.amount}" data-key="r:release:${esc(r.from.o.id)}:${state.rev}">Liberar</button></div>`);
+    }
+    const acted = new Set([...p.pay, ...p.reserve].map(a => a.it));
+    for (const it of p.items) {
+      if (it.days > state.settings.payDays || it.short > 0 || acted.has(it) || it.future <= 0) continue;
+      out.push(`<div class="alert info"><p><strong>${esc(it.o.name)}</strong> ${whenText(it.days).toLowerCase()} y depende de ${T(it.future)} que aún no llegan. Regístralos en cuanto entren.</p></div>`);
+    }
+    for (const f of p.overdueFuture) {
+      out.push(`<div class="alert info"><p>¿Ya recibiste ${esc(f.concept || 'el ingreso confirmado')} (${T(f.amount)})? Estaba previsto para el ${dayLabel(f.date)} y ya no se proyecta.</p>
+        <button class="btn sm" type="button" data-act="fut-received" data-fid="${esc(f.id)}">Sí, registrarlo</button></div>`);
+    }
+    return out.length ? `<section class="alerts"><p class="label">Avisos</p>${out.join('')}</section>` : '';
+  }
+
+  /* ---------- Paneles ---------- */
+
+  const ICON_X = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  const ICON_BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
+  const head = (title, back) => `<div class="sh-top">${back ? `<button class="icon" type="button" data-act="back" aria-label="Volver">${ICON_BACK}</button>` : ''}
+    <h2>${title}</h2><button class="icon" type="button" data-act="close" aria-label="Cerrar">${ICON_X}</button></div>`;
+  const moneyField = (id, label, cents, opt) => `<label class="field"><span>${label}</span>
+    <span class="money"><input type="text" inputmode="decimal" autocomplete="off" id="${id}" name="${id}" value="${cents == null ? '' : Core.moneyInput(cents)}" placeholder="0.00"${opt && opt.readonly ? ' readonly' : ''}></span>
+    ${opt && opt.help ? `<small>${opt.help}</small>` : ''}</label>`;
+
+  function openSheet(name, params) {
+    cur = { name, params: params || {} };
+    drawSheet();
+    if (!sheet.open) sheet.showModal();
+    sheet.scrollTop = 0;
+    const first = $('[data-focus]', sheet);
+    if (first) { first.focus(); if (first.select) first.select(); }
+  }
+  function drawSheet() {
+    if (!cur) return;
+    const keep = toastEl.parentNode === sheet && !toastEl.hidden;
+    sheet.innerHTML = `<div class="sh">${SHEETS[cur.name](cur.params)}</div>`;
+    if (keep) sheet.appendChild(toastEl); else document.body.appendChild(toastEl);
+  }
+  function closeSheet() {
+    document.body.appendChild(toastEl);
+    if (sheet.open) sheet.close();
+    cur = null; sheet.innerHTML = '';
+  }
+  sheet.addEventListener('close', () => { if (!sheet.open) { document.body.appendChild(toastEl); cur = null; } });
+  sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
+
+  const SHEETS = {
+    income() {
+      return `${head('Registrar ingreso')}
+        <form data-form="income" novalidate>
+          <label class="field"><span>Cantidad recibida</span>
+            <span class="money xl"><input type="text" inputmode="decimal" autocomplete="off" id="in-amount" name="amount" placeholder="0.00" data-focus></span></label>
+          <label class="field"><span>Concepto (opcional)</span>
+            <input type="text" id="in-concept" name="concept" maxlength="120" autocomplete="off" placeholder="Venta, pago de cliente, sueldo"></label>
+          <p class="cap">Se guarda con la fecha y hora de este momento: ${stamp(new Date().toISOString())}.</p>
+          <p class="err" role="alert"></p>
+          <button class="btn primary" type="submit">Guardar y ver recomendación</button>
+        </form>`;
+    },
+
+    move(q) {
+      const o = state.obligations.find(x => x.id === q.ob);
+      if (!o) return `${head('Movimiento')}<p class="none">Esa obligación ya no existe.</p>`;
+      const acc = Core.account(state, today()), b = acc.by.get(o.id), free = Math.max(0, acc.free);
+      const title = { pay: 'Confirmar pago', reserve: 'Confirmar apartado', release: 'Liberar apartado' }[q.kind];
+      const cta = { pay: 'Ya pagué, registrar', reserve: 'Apartar este dinero', release: 'Liberar este dinero' }[q.kind];
+      let def = q.amount, info = '', fixed = false;
+      if (q.kind === 'pay') {
+        fixed = !o.partial;
+        if (def == null) def = o.partial ? Math.min(b.pending, free + b.reserved) : b.pending;
+        info = `Pendiente ${T(b.pending)} · apartado ${T(b.reserved)} · disponible ${T(free)}.` +
+          (fixed ? ' No admite pagos parciales.' : o.min ? (Core.minRemaining(o, b) ? ` Mínimo ${T(Core.minRemaining(o, b))}.` : ' Mínimo de este vencimiento ya cubierto.') : '') +
+          ' Primero se usa lo apartado y el resto sale de tu disponible.';
+      } else if (q.kind === 'reserve') {
+        if (def == null) def = Math.min(Math.max(0, b.pending - b.reserved), free);
+        info = `Faltan ${T(Math.max(0, b.pending - b.reserved))} por apartar · disponible ${T(free)}. El dinero sigue en tu mano, pero deja de contar como disponible.`;
+      } else {
+        if (def == null) def = b.reserved;
+        info = `Apartado ${T(b.reserved)}. Al liberarlo vuelve a tu disponible.`;
+      }
+      return `${head(title, !!q.back)}
+        <form data-form="move" novalidate>
+          <p class="headline">${esc(o.name)}</p>
+          ${q.kind === 'pay' && o.dest ? `<p class="cap">Destino: ${esc(o.dest)}</p>` : ''}
+          ${moneyField('mv-amount', 'Cantidad', def, { readonly: fixed })}
+          <p class="cap">${info}</p>
+          <p class="err" role="alert"></p>
+          <button class="btn primary" type="submit">${cta}</button>
+        </form>`;
+    },
+
+    config(q) {
+      const tab = q.tab || 'ob';
+      const tabs = [['ob', 'Obligaciones'], ['in', 'Ingresos'], ['aj', 'Ajustes']].map(t =>
+        `<button type="button" role="tab" aria-selected="${t[0] === tab}" data-act="tab" data-tab="${t[0]}">${t[1]}</button>`).join('');
+      return `${head('Configuración')}<div class="tabs" role="tablist">${tabs}</div>${{ ob: cfgOb, in: cfgIn, aj: cfgAj }[tab]()}`;
+    },
+
+    ob(q) {
+      const o = q.id ? state.obligations.find(x => x.id === q.id) : null;
+      if (q.id && !o) return `${head('Obligación', true)}<p class="none">Esa obligación ya no existe.</p>`;
+      const b = o ? Core.account(state, today()).by.get(o.id) : null;
+      const sev = o ? o.sev : 'alta', prio = o ? o.prio : 3;
+      const opt = (v, t, sel) => `<option value="${v}"${v === sel ? ' selected' : ''}>${t}</option>`;
+      return `${head(o ? 'Editar obligación' : 'Nueva obligación', true)}
+        <form data-form="ob" novalidate>
+          <label class="field"><span>Nombre</span><input type="text" id="ob-name" name="name" maxlength="80" autocomplete="off" value="${esc(o ? o.name : '')}" placeholder="Renta, luz, tarjeta"${o ? '' : ' data-focus'}></label>
+          <div class="two">
+            ${moneyField('ob-amount', 'Monto total', o ? o.amount : null)}
+            ${moneyField('ob-pending', 'Pendiente', b ? b.pending : null, { help: 'Vacío = todo el monto' })}
+          </div>
+          <label class="field"><span>Vence el</span><input type="date" id="ob-due" name="due" value="${o ? o.due : Core.addDays(today(), 7)}"></label>
+          <label class="field"><span>Si no pagas a tiempo</span><select id="ob-sev" name="sev">
+            ${opt('critica', 'Crítica: corte, desalojo, embargo', sev)}${opt('alta', 'Alta: recargos fuertes, historial', sev)}
+            ${opt('media', 'Media: recargo menor', sev)}${opt('baja', 'Baja: se puede negociar', sev)}</select>
+            <small>Pesa más que la prioridad manual.</small></label>
+          <div class="two">
+            <label class="field"><span>Prioridad manual</span><select id="ob-prio" name="prio">
+              ${[1, 2, 3, 4, 5].map(n => opt(String(n), n === 1 ? '1 · primero' : n === 5 ? '5 · al final' : String(n), String(prio))).join('')}</select></label>
+            <label class="field"><span>Estado</span><select id="ob-status" name="status">
+              ${opt('activa', 'Activa', o ? o.status : 'activa')}${opt('pausa', 'En pausa', o ? o.status : 'activa')}</select></label>
+          </div>
+          <label class="check"><input type="checkbox" id="ob-partial" name="partial"${o && o.partial ? ' checked' : ''}> Permite pagos parciales</label>
+          <div id="ob-min-wrap"${o && o.partial ? '' : ' hidden'}>${moneyField('ob-min', 'Pago mínimo', o && o.min ? o.min : null, { help: 'Lo que evita el recargo. Vacío si no hay mínimo.' })}</div>
+          <label class="field"><span>Destino del pago</span><input type="text" id="ob-dest" name="dest" maxlength="120" autocomplete="off" value="${esc(o ? o.dest : '')}" placeholder="Cuenta, tienda o persona"></label>
+          <p class="err" role="alert"></p>
+          <button class="btn primary" type="submit">Guardar</button>
+        </form>
+        ${o ? `<p class="sub">Movimientos manuales</p>
+          <p class="cap">Pagado ${T(o.amount - b.pending)} de ${T(o.amount)} · apartado ${T(b.reserved)}.</p>
+          <div class="list"><div class="acts">
+            ${b.pending > 0 ? `<button class="btn sm" type="button" data-act="move" data-kind="pay" data-ob="${esc(o.id)}" data-back="1">Registrar pago</button>
+            <button class="btn sm" type="button" data-act="move" data-kind="reserve" data-ob="${esc(o.id)}" data-back="1">Apartar</button>` : ''}
+            ${b.reserved > 0 ? `<button class="btn sm" type="button" data-act="move" data-kind="release" data-ob="${esc(o.id)}" data-back="1">Liberar</button>` : ''}
+            <button class="btn sm danger" type="button" data-act="ob-delete" data-ob="${esc(o.id)}">Eliminar</button>
+          </div></div>` : ''}`;
+    },
+
+    history() {
+      const acc = Core.account(state, today());
+      const rows = state.ledger.slice().reverse().map(e => {
+        const off = acc.voided.has(e.id);
+        let t = '', a = '', cls = '';
+        if (e.type === 'income') { t = 'Ingreso' + (e.concept ? ' · ' + esc(e.concept) : ''); a = '+' + T(e.amount); cls = 'plus'; }
+        else if (e.type === 'payment') { t = 'Pago · ' + esc(e.label || ''); a = '−' + T(e.amount); cls = 'minus'; }
+        else if (e.type === 'reserve') { t = 'Apartado · ' + esc(e.label || ''); a = T(e.amount); }
+        else if (e.type === 'release') { t = 'Liberado · ' + esc(e.label || ''); a = T(e.amount); }
+        else if (e.type === 'void') { t = 'Anulación' + (e.label ? ' · ' + esc(e.label) : ''); }
+        else { t = esc(e.concept || 'Ajuste'); a = (e.amount < 0 ? '' : '+') + T(e.amount); cls = e.amount < 0 ? 'minus' : 'plus'; }
+        const extra = e.type === 'payment' && e.fromReserve ? ` · ${T(e.fromReserve)} de lo apartado` : e.auto ? ' · automático' : '';
+        const can = !off && e.type !== 'void' && e.type !== 'release';
+        return `<li class="${off ? 'off' : ''}"><span class="t">${t}${off ? '<span class="chip">Anulado</span>' : ''}</span>
+          <span class="a ${off ? '' : cls}">${a}</span><span class="s">${stamp(e.ts)}${extra}</span>
+          ${can ? `<span class="acts"><button class="link" type="button" data-act="void" data-ref="${esc(e.id)}">Anular</button></span>` : ''}</li>`;
+      }).join('');
+      return `${head('Movimientos')}
+        <p class="cap">Total en mano ${T(acc.cash)} · reservado ${T(acc.reservedTotal)} · disponible ${T(acc.free)}. Nada se borra: anular agrega un movimiento que cancela al original.</p>
+        <details><summary>Mi dinero real no coincide</summary>
+          <form data-form="adjust" novalidate>
+            ${moneyField('adj-target', 'Dinero que tienes en realidad', acc.cash, { help: 'Se registra la diferencia como corrección, por ejemplo por gastos fuera de la app.' })}
+            <p class="err" role="alert"></p>
+            <button class="btn" type="submit">Corregir saldo</button>
+          </form></details>
+        ${rows ? `<ul class="list">${rows}</ul>` : '<p class="none">Aún no hay movimientos.</p>'}`;
+    },
+
+    backup() {
+      return `${head('Respaldo', true)}
+        <div class="stack">
+          <p class="cap">Tus datos viven solo en este navegador. Guarda este texto en un lugar seguro para pasarlos a otro teléfono o recuperarlos.</p>
+          <textarea id="bk-out" readonly aria-label="Respaldo">${esc(JSON.stringify(state))}</textarea>
+          <div class="list"><div class="acts">
+            <button class="btn sm" type="button" data-act="bk-copy">Copiar respaldo</button>
+            ${HOSTED ? '<button class="btn sm" type="button" data-act="bk-download">Descargar archivo</button>' : ''}
+          </div></div>
+          <p class="sub">Restaurar</p>
+          <label class="field"><span>Elige un archivo de respaldo</span><input type="file" id="bk-file" accept=".json,application/json,text/plain"></label>
+          <label class="field"><span>o pega aquí el texto</span><textarea id="bk-in" spellcheck="false" autocomplete="off"></textarea></label>
+          <p class="err" role="alert"></p>
+          <button class="btn danger" type="button" data-act="bk-restore">Reemplazar mis datos con este respaldo</button>
+        </div>`;
+    },
+  };
+
+  function cfgOb() {
+    const acc = Core.account(state, today()), day = today();
+    const rows = state.obligations.slice().sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0)).map(o => {
+      const b = acc.by.get(o.id), d = Core.diffDays(o.due, day);
+      const chip = b.pending <= 0 ? '<span class="chip ok">Pagada</span>' : o.status === 'pausa' ? '<span class="chip">En pausa</span>' : d < 0 ? '<span class="chip hot">Vencida</span>' : '';
+      return `<li><button class="rowb" type="button" data-act="ob-edit" data-ob="${esc(o.id)}">
+        <span class="t">${esc(o.name)}${chip}</span>
+        <span class="a">${T(b.pending)}${b.reserved > 0 ? `<small>apartado ${T(b.reserved)}</small>` : ''}</span>
+        <span class="s">${dayLabel(o.due)} · ${Core.SEV_LABEL[o.sev]} · prioridad ${o.prio}${o.partial ? ' · parciales' : ''}</span></button></li>`;
+    }).join('');
+    return `${rows ? `<ul class="list">${rows}</ul>` : '<p class="none">Sin obligaciones todavía.</p>'}
+      <button class="btn primary" type="button" data-act="ob-new">Nueva obligación</button>`;
+  }
+
+  function cfgIn() {
+    const acc = Core.account(state, today()), S = state.settings;
+    const fut = state.future.slice().sort((a, b) => (a.date < b.date ? -1 : 1)).map(f => `<li>
+      <span class="t">${esc(f.concept || 'Ingreso confirmado')}${f.received ? '<span class="chip ok">Recibido</span>' : ''}</span>
+      <span class="a">${T(f.amount)}</span><span class="s">${dayLabel(f.date)}</span>
+      ${f.received ? '' : `<span class="acts"><button class="link" type="button" data-act="fut-received" data-fid="${esc(f.id)}">Ya lo recibí</button>
+        <button class="link" type="button" data-act="fut-delete" data-fid="${esc(f.id)}">Quitar</button></span>`}</li>`).join('');
+    return `<form data-form="settings" novalidate>
+        ${moneyField('st-opening', 'Saldo inicial', acc.opening, { help: 'El dinero real con el que empiezas.' })}
+        ${moneyField('st-safety', 'Reserva mínima de seguridad', S.safety, { help: 'Nunca se recomienda repartirla.' })}
+        ${moneyField('st-daily', 'Ingreso diario estimado', S.daily, { help: 'Solo sirve para proyectar. No cuenta como saldo hasta que lo registres.' })}
+        <p class="err" role="alert"></p>
+        <button class="btn primary" type="submit">Guardar</button>
+      </form>
+      <p class="sub">Ingresos futuros confirmados</p>
+      ${fut ? `<ul class="list">${fut}</ul>` : '<p class="cap">Dinero que ya sabes que llegará en una fecha concreta.</p>'}
+      <form data-form="future" novalidate>
+        <label class="field"><span>Concepto</span><input type="text" id="fu-concept" name="concept" maxlength="80" autocomplete="off" placeholder="Cobro, sueldo, depósito"></label>
+        <div class="two">${moneyField('fu-amount', 'Cantidad', null)}
+          <label class="field"><span>Llega el</span><input type="date" id="fu-date" name="date" value="${Core.addDays(today(), 1)}"></label></div>
+        <p class="err" role="alert"></p>
+        <button class="btn" type="submit">Agregar ingreso futuro</button>
+      </form>`;
+  }
+
+  function cfgAj() {
+    const S = state.settings;
+    let zones = [];
+    try { zones = Intl.supportedValuesOf('timeZone'); } catch (e) { zones = []; }
+    if (!zones.includes(S.tz)) zones.unshift(S.tz);
+    return `<form data-form="rules" novalidate>
+        <div class="two">
+          <label class="field"><span>Pagar si faltan</span><input type="number" inputmode="numeric" id="st-pay" name="payDays" min="0" max="30" value="${S.payDays}"><small>días o menos</small></label>
+          <label class="field"><span>Apartar si faltan</span><input type="number" inputmode="numeric" id="st-hor" name="horizon" min="0" max="365" value="${S.horizon}"><small>días o menos</small></label>
+        </div>
+        <label class="field"><span>Zona horaria</span><select id="st-tz" name="tz">${zones.map(z => `<option${z === S.tz ? ' selected' : ''}>${esc(z)}</option>`).join('')}</select>
+          <small>Define cuándo cambia el día para vencimientos y proyecciones.</small></label>
+        <p class="err" role="alert"></p>
+        <button class="btn primary" type="submit">Guardar</button>
+      </form>
+      <details><summary>Cómo decide QUBO</summary><ol class="rules">
+        <li>Solo reparte dinero real: lo que tienes en mano, menos lo apartado, menos tu reserva de seguridad.</li>
+        <li>Ordena por la consecuencia del impago, luego por tu prioridad manual y luego por fecha.</li>
+        <li>Proyecta día por día tu ingreso diario y tus ingresos confirmados hasta cada vencimiento. Lo que ese futuro no alcanza a cubrir se aparta desde hoy.</li>
+        <li>Si algo no se puede cubrir a tiempo de ninguna forma, primero salva lo que vence antes y sí alcanza; el resto lo aparta para eso.</li>
+        <li>Lo que sobra se adelanta a los vencimientos cercanos y después a los saldos por encima del mínimo.</li>
+        <li>Marca PAGAR cuando falta poco para vencer y alcanza el mínimo exigido; si no, RESERVAR.</li>
+      </ol></details>
+      <p class="sub">Datos</p>
+      <div class="list"><div class="acts">
+        <button class="btn sm" type="button" data-act="open-backup">Respaldo y restauración</button>
+        <button class="btn sm danger" type="button" data-act="reset">Borrar todo</button>
+      </div></div>`;
+  }
+
+  /* ---------- Avisos breves ---------- */
+
+  function toast(msg, undo) {
+    toastEl.innerHTML = `<span>${esc(msg)}</span>${undo ? '<button type="button" data-act="undo">Deshacer</button>' : ''}`;
+    undoFn = undo || null;
+    (sheet.open ? sheet : document.body).appendChild(toastEl);
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.hidden = true; undoFn = null; }, undo ? 7000 : 3200);
+  }
+  // Las acciones que destruyen piden un segundo toque (aquí no existen los diálogos del navegador).
+  function armed(el) {
+    if (el.dataset.armed) return true;
+    el.dataset.armed = '1'; el.dataset.label = el.textContent; el.textContent = 'Toca otra vez para confirmar';
+    setTimeout(() => { if (el.isConnected && el.dataset.armed) { delete el.dataset.armed; el.textContent = el.dataset.label; } }, 3500);
+    return false;
+  }
+  const setErr = (form, msg) => { const e = $('.err', form); if (e) e.textContent = msg || ''; return false; };
+  const cents = (form, name) => Core.parseMoney(form.elements[name].value);
+  // Campo de dinero opcional: vacío vale el valor por omisión; inválido devuelve NaN.
+  const centsOr = (form, name, fallback) => { const v = form.elements[name].value.trim(); if (!v) return fallback; const c = Core.parseMoney(v); return c == null ? NaN : c; };
+
+  /* ---------- Acciones ---------- */
+
+  const ACT = {
+    'open-income'() { openSheet('income', { id: Core.uid() }); },
+    'open-config'() { openSheet('config', { tab: 'ob' }); },
+    'open-history'() { openSheet('history'); },
+    'open-backup'() { openSheet('backup', { back: 'aj' }); },
+    'tab'(el) { cur.params.tab = el.dataset.tab; drawSheet(); },
+    'close'() { closeSheet(); },
+    'back'() {
+      if (cur.name === 'move' && cur.params.back) return openSheet('ob', { id: cur.params.ob, entry: Core.uid() });
+      openSheet('config', { tab: cur.params.back || 'ob' });
+    },
+    'refresh'() {
+      state = Core.normalize(Store.read()) || state;
+      render(); window.scrollTo({ top: 0, behavior: 'smooth' });
+      toast(`Estado actualizado · ${clock()}`);
+    },
+    'move'(el) {
+      openSheet('move', { kind: el.dataset.kind, ob: el.dataset.ob, id: el.dataset.key || Core.uid(),
+        amount: el.dataset.amount ? Number(el.dataset.amount) : null, back: el.dataset.back || '' });
+    },
+    'ob-new'() { openSheet('ob', { id: null, newId: Core.uid(), entry: Core.uid() }); },
+    'ob-edit'(el) { openSheet('ob', { id: el.dataset.ob, entry: Core.uid() }); },
+    'ob-delete'(el) {
+      if (!armed(el)) return;
+      const res = commit((s, day, ts) => Core.ops.deleteObligation(s, { id: Core.uid(), ob: el.dataset.ob, ts }, day));
+      openSheet('config', { tab: 'ob' });
+      toast(res.ok ? 'Obligación eliminada' : res.msg);
+    },
+    'fut-received'(el) {
+      const fid = el.dataset.fid;
+      const res = commit((s, day, ts) => Core.ops.receiveFuture(s, { fid, ts }));
+      if (cur) drawSheet();
+      toast(res.ok ? 'Ingreso registrado en tu saldo' : res.msg, res.ok ? () => { undoEntry(res.id); if (cur) drawSheet(); } : null);
+    },
+    'fut-delete'(el) {
+      if (!armed(el)) return;
+      const res = commit(s => Core.ops.deleteFuture(s, { fid: el.dataset.fid }));
+      drawSheet(); if (!res.ok) toast(res.msg);
+    },
+    'void'(el) {
+      if (!armed(el)) return;
+      const res = undoEntry(el.dataset.ref);
+      drawSheet(); toast(res.ok ? 'Movimiento anulado' : res.msg);
+    },
+    'undo'() { const fn = undoFn; undoFn = null; toastEl.hidden = true; if (fn) { fn(); toast('Deshecho'); } },
+    'demo-clear'(el) {
+      if (!armed(el)) return;
+      Store.write(Object.assign(Core.blank(state.settings.tz), { rev: state.rev + 1 }));
+      state = Core.normalize(Store.read()); render();
+      openSheet('config', { tab: 'in' });
+    },
+    'reset'(el) {
+      if (!armed(el)) return;
+      Store.write(Object.assign(Core.blank(state.settings.tz), { rev: state.rev + 1 }));
+      state = Core.normalize(Store.read()); render(); closeSheet(); toast('Datos borrados');
+    },
+    'bk-copy'() {
+      const ta = $('#bk-out', sheet);
+      const fallback = () => { ta.focus(); ta.select(); toast('Texto seleccionado: cópialo con el menú del teléfono'); };
+      try { navigator.clipboard.writeText(ta.value).then(() => toast('Respaldo copiado'), fallback); } catch (e) { fallback(); }
+    },
+    /*SOLO-HOSTINGER*/
+    'bk-download'() {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(state)], { type: 'application/json' }));
+      a.download = `qubo-respaldo-${today()}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    },
+    /*FIN-SOLO-HOSTINGER*/
+    'bk-restore'(el) {
+      const box = el.closest('.stack');
+      let parsed = null;
+      try { parsed = Core.normalize(JSON.parse($('#bk-in', sheet).value)); } catch (e) { parsed = null; }
+      if (!parsed) return setErr(box, 'Ese texto no es un respaldo válido de QUBO.');
+      setErr(box, '');
+      if (!armed(el)) return;
+      parsed.rev = Math.max(parsed.rev, state.rev) + 1;
+      Store.write(parsed); state = Core.normalize(Store.read()) || parsed;
+      render(); closeSheet(); toast('Respaldo restaurado');
+    },
+  };
+
+  const FORMS = {
+    income(f) {
+      const amount = cents(f, 'amount');
+      if (amount == null || amount <= 0) return setErr(f, 'Escribe la cantidad, por ejemplo 1250.50');
+      const id = cur.params.id;
+      flash = amount;
+      const res = commit((s, day, ts) => Core.ops.income(s, { id, amount, concept: f.elements.concept.value, ts }));
+      if (!res.ok && !res.dup) { flash = null; return setErr(f, res.msg); }
+      closeSheet();
+      if (res.ok) toast(`Ingreso de ${T(amount)} guardado`, () => undoEntry(id));
+      const el = $('#plan'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    move(f) {
+      const q = cur.params, amount = cents(f, 'mv-amount');
+      if (amount == null || amount <= 0) return setErr(f, 'Escribe una cantidad mayor a cero.');
+      const res = commit((s, day, ts) => Core.ops[q.kind](s, { id: q.id, ob: q.ob, amount, ts }, day));
+      if (!res.ok && !res.dup) return setErr(f, res.msg);
+      if (q.back) openSheet('ob', { id: q.ob, entry: Core.uid() }); else closeSheet();
+      const done = { pay: 'Pago registrado', reserve: 'Dinero apartado', release: 'Apartado liberado' }[q.kind];
+      if (res.ok) toast(`${done}: ${T(amount)}`, q.kind === 'release' ? null : () => { undoEntry(q.id); if (cur) drawSheet(); });
+    },
+    ob(f) {
+      const q = cur.params, E = f.elements;
+      // Si no tocaste "Pendiente" al editar, se recalcula a partir del monto y de lo ya pagado.
+      const pEl = E['ob-pending'], untouched = q.id && pEl.value === pEl.defaultValue;
+      const amount = cents(f, 'ob-amount'), pending = untouched ? null : centsOr(f, 'ob-pending', null), min = centsOr(f, 'ob-min', 0);
+      if (amount == null) return setErr(f, 'Escribe el monto total.');
+      if (Number.isNaN(pending) || Number.isNaN(min)) return setErr(f, 'Revisa los montos: usa números como 1250.50');
+      const res = commit((s, day, ts) => Core.ops.saveObligation(s, {
+        id: q.id, newId: q.newId, entry: q.entry, ts, name: E.name.value, amount, pending, due: E.due.value, sev: E.sev.value,
+        prio: Number(E.prio.value), partial: E.partial.checked, min, dest: E.dest.value, status: E.status.value }, day));
+      if (!res.ok && !res.dup) return setErr(f, res.msg);
+      openSheet('config', { tab: 'ob' }); toast('Obligación guardada');
+    },
+    settings(f) {
+      const S = state.settings, opening = cents(f, 'st-opening'), safety = cents(f, 'st-safety'), daily = cents(f, 'st-daily');
+      if (opening == null || safety == null || daily == null) return setErr(f, 'Revisa los montos: usa números como 1250.50 (cero si no aplica).');
+      const res = commit((s, day, ts) => Core.ops.saveSettings(s, { id: Core.uid(), ts, opening, safety, daily, payDays: S.payDays, horizon: S.horizon, tz: S.tz }, day));
+      if (!res.ok) return setErr(f, res.msg);
+      drawSheet(); toast('Guardado');
+    },
+    rules(f) {
+      const E = f.elements, S = state.settings, opening = Core.account(state, today()).opening;
+      const res = commit((s, day, ts) => Core.ops.saveSettings(s, { id: Core.uid(), ts, opening, safety: S.safety, daily: S.daily,
+        payDays: Number(E.payDays.value), horizon: Number(E.horizon.value), tz: E.tz.value }, day));
+      if (!res.ok) return setErr(f, res.msg);
+      drawSheet(); toast('Guardado');
+    },
+    future(f) {
+      const amount = cents(f, 'fu-amount');
+      if (amount == null || amount <= 0) return setErr(f, 'Escribe la cantidad.');
+      const res = commit((s, day) => Core.ops.addFuture(s, { id: Core.uid(), amount, date: f.elements.date.value, concept: f.elements.concept.value }, day));
+      if (!res.ok) return setErr(f, res.msg);
+      drawSheet(); toast('Ingreso futuro agregado');
+    },
+    adjust(f) {
+      const target = cents(f, 'adj-target');
+      if (target == null) return setErr(f, 'Escribe cuánto dinero tienes en realidad.');
+      const res = commit((s, day, ts) => Core.ops.adjustCash(s, { id: Core.uid(), target, ts }, day));
+      if (!res.ok) return setErr(f, res.msg);
+      drawSheet(); toast('Saldo corregido');
+    },
+  };
+
+  document.addEventListener('click', e => {
+    const el = e.target.closest('[data-act]');
+    if (el && ACT[el.dataset.act]) ACT[el.dataset.act](el);
+  });
+  document.addEventListener('submit', e => {
+    e.preventDefault();
+    const f = e.target, h = FORMS[f.dataset.form];
+    if (!h || f.dataset.busy) return;
+    f.dataset.busy = '1';                       // un envío a la vez: el doble toque no pasa de aquí
+    try { h(f); } finally { delete f.dataset.busy; }
+  });
+  document.addEventListener('change', e => {
+    if (e.target.id === 'ob-partial') $('#ob-min-wrap', sheet).hidden = !e.target.checked;
+    if (e.target.id === 'bk-file' && e.target.files[0]) {
+      const r = new FileReader();
+      r.onload = () => { const ta = $('#bk-in', sheet); if (ta) ta.value = String(r.result || ''); };
+      r.readAsText(e.target.files[0]);
+    }
+  });
+
+  /* ---------- Mantenerse al día ---------- */
+
+  const resync = () => { state = Core.normalize(Store.read()) || state; render(); };
+  Store.onExternalChange(() => { resync(); if (cur && (cur.name === 'config' || cur.name === 'history')) drawSheet(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !cur) resync(); });
+  // Al cambiar el día en tu zona horaria, vencimientos y proyecciones se recalculan solos.
+  setInterval(() => { if (lastPlan && today() !== lastPlan.today && !cur) render(); }, 30000);
+
+  if (HOSTED && 'serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
